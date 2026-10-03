@@ -45,4 +45,9 @@ public class ShowController {
             )
         );
     }
+
+    @GetMapping("/shows/{showId}")
+    public ResponseEntity<ShowResponse> getShow(@PathVariable long showId) {
+        return ResponseEntity.ok(showService.getShow(showId));
+    }
 }

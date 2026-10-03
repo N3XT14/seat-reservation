@@ -1,6 +1,8 @@
 package com.example.seat_reservation;
 
+import com.example.seat_reservation.dto.ShowResponse;
 import com.example.seat_reservation.exception.DuplicateSeatException;
+import com.example.seat_reservation.exception.ShowNotFoundException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -18,13 +20,36 @@ public class ShowService {
 
     private final JdbcTemplate jdbc;
     private final ApplicationEventPublisher events;
+    private final ShowCacheStore cacheStore;
 
-    public ShowService(JdbcTemplate jdbc, ApplicationEventPublisher events) {
+    public ShowService(JdbcTemplate jdbc, ApplicationEventPublisher events, ShowCacheStore cacheStore) {
         this.jdbc = jdbc;
         this.events = events;
+        this.cacheStore = cacheStore;
     }
 
     public record CreatedShow(long showId, ShowCache show) {}
+
+    @Transactional(readOnly = true)
+    public ShowResponse getShow(long showId) {
+        ShowCache show = cacheStore.get(showId).orElseThrow(() -> new ShowNotFoundException(showId));
+
+        List<ShowResponse.SeatItem> seats = jdbc.query(
+            "SELECT seat_label, status FROM seats WHERE show_id = ? ORDER BY id",
+            (rs, i) -> new ShowResponse.SeatItem(rs.getString("seat_label"), rs.getString("status")),
+            showId
+        );
+
+        int available = (int) seats.stream().filter(s -> "available".equals(s.status())).count();
+        int held      = (int) seats.stream().filter(s -> "held".equals(s.status())).count();
+        int confirmed = (int) seats.stream().filter(s -> "confirmed".equals(s.status())).count();
+
+        return new ShowResponse(
+            String.valueOf(showId),
+            show.name(), show.venue(), show.pricePaise(), show.perUserLimit(),
+            seats.size(), available, held, confirmed, seats
+        );
+    }
 
     @Transactional
     public CreatedShow create(String name, String venue, long pricePaise, int perUserLimit, List<String> labels) {
