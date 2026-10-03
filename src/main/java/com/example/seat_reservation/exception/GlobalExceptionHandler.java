@@ -70,6 +70,31 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError("forbidden", ex.getMessage()));
     }
 
+    @ExceptionHandler(UnknownSeatLabelException.class)
+    public ResponseEntity<ApiError> handleUnknownSeatLabel(UnknownSeatLabelException ex) {
+        return ResponseEntity.badRequest().body(new ApiError("bad_request", ex.getMessage()));
+    }
+
+    @ExceptionHandler(MissingIdempotencyKeyException.class)
+    public ResponseEntity<ApiError> handleMissingIdempotencyKey(MissingIdempotencyKeyException ex) {
+        return ResponseEntity.badRequest().body(new ApiError("missing_idempotency_key", ex.getMessage()));
+    }
+
+    @ExceptionHandler(SeatUnavailableException.class)
+    public ResponseEntity<ApiError> handleSeatUnavailable(SeatUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("seat_taken", ex.getMessage()));
+    }
+
+    @ExceptionHandler(PerUserLimitExceededException.class)
+    public ResponseEntity<ApiError> handlePerUserLimit(PerUserLimitExceededException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("per_user_limit", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("idempotent_conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);
