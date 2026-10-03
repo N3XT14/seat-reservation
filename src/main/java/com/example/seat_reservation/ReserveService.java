@@ -3,6 +3,8 @@ package com.example.seat_reservation;
 import com.example.seat_reservation.dto.ReservationResponse;
 import com.example.seat_reservation.exception.*;
 import tools.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -18,6 +20,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class ReserveService {
+
+    private static final Logger log = LoggerFactory.getLogger(ReserveService.class);
 
     private final JdbcTemplate jdbc;
     private final ShowCacheStore cacheStore;
@@ -144,6 +148,7 @@ public class ReserveService {
         // Store idempotency response so concurrent duplicates can replay it.
         storeIdempotencyResponse(userId, idempotencyKey, 201, response);
 
+        log.info("reserve outcome=confirmed user_id={} show_id={} seats={}", userId, showId, n);
         return response;
     }
 
@@ -152,7 +157,9 @@ public class ReserveService {
         if (existing == null) throw new IllegalStateException("Idempotency key vanished unexpectedly");
         if (!existing.hash().equals(requestHash)) throw new IdempotencyConflictException();
         if (existing.responseCode() == null) throw new IllegalStateException("Idempotency key has no stored response");
-        return objectMapper.readValue(existing.responseBody(), ReservationResponse.class);
+        ReservationResponse response = objectMapper.readValue(existing.responseBody(), ReservationResponse.class);
+        log.info("reserve outcome=replay user_id={} reservation_id={}", userId, response.reservationId());
+        return response;
     }
 
     private KeyRow readIdempotencyKey(String userId, String idempotencyKey) {

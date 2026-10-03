@@ -2,8 +2,13 @@ package com.example.seat_reservation.exception;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -103,6 +108,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AlreadyCancelledException.class)
     public ResponseEntity<ApiError> handleAlreadyCancelled(AlreadyCancelledException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("already_cancelled", ex.getMessage()));
+    }
+
+    @ExceptionHandler({
+        CannotGetJdbcConnectionException.class,
+        CannotCreateTransactionException.class,
+        QueryTimeoutException.class,
+        CannotAcquireLockException.class
+    })
+    public ResponseEntity<ApiError> handleDatabaseBusy(Exception ex) {
+        log.warn("Database busy: {}", ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Retry-After", "1");
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .headers(headers)
+            .body(new ApiError("busy", null));
     }
 
     @ExceptionHandler(Exception.class)

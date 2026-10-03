@@ -3,6 +3,8 @@ package com.example.seat_reservation;
 import com.example.seat_reservation.dto.CancelResponse;
 import com.example.seat_reservation.exception.AlreadyCancelledException;
 import com.example.seat_reservation.exception.ReservationNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -13,6 +15,8 @@ import java.util.List;
 
 @Service
 public class CancelService {
+
+    private static final Logger log = LoggerFactory.getLogger(CancelService.class);
 
     private final JdbcTemplate jdbc;
 
@@ -96,6 +100,7 @@ public class CancelService {
             reservationId
         );
 
+        log.info("cancel outcome=cancelled user_id={} reservation_id={} show_id={} seats={}", userId, reservationId, resv.showId(), n);
         return new CancelResponse(
             String.valueOf(reservationId),
             resv.showId(),
