@@ -95,6 +95,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("idempotent_conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(ReservationNotFoundException.class)
+    public ResponseEntity<ApiError> handleReservationNotFound(ReservationNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError("reservation_not_found", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AlreadyCancelledException.class)
+    public ResponseEntity<ApiError> handleAlreadyCancelled(AlreadyCancelledException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("already_cancelled", ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);
