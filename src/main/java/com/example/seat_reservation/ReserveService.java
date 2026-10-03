@@ -2,6 +2,8 @@ package com.example.seat_reservation;
 
 import com.example.seat_reservation.dto.ReservationResponse;
 import com.example.seat_reservation.exception.*;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,11 +28,16 @@ public class ReserveService {
     private final JdbcTemplate jdbc;
     private final ShowCacheStore cacheStore;
     private final ObjectMapper objectMapper;
+    private final Counter confirmedCounter;
+    private final Counter replayCounter;
 
-    public ReserveService(JdbcTemplate jdbc, ShowCacheStore cacheStore, ObjectMapper objectMapper) {
+    public ReserveService(JdbcTemplate jdbc, ShowCacheStore cacheStore, ObjectMapper objectMapper, MeterRegistry registry) {
         this.jdbc = jdbc;
         this.cacheStore = cacheStore;
         this.objectMapper = objectMapper;
+        this.confirmedCounter = Counter.builder("reservations_confirmed_total").register(registry);
+        this.replayCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "idempotent_replay").register(registry);
     }
 
     private record KeyRow(String hash, Integer responseCode, String responseBody) {}
@@ -148,6 +155,7 @@ public class ReserveService {
         // Store idempotency response so concurrent duplicates can replay it.
         storeIdempotencyResponse(userId, idempotencyKey, 201, response);
 
+        confirmedCounter.increment();
         log.info("reserve outcome=confirmed user_id={} show_id={} seats={}", userId, showId, n);
         return response;
     }
@@ -158,6 +166,7 @@ public class ReserveService {
         if (!existing.hash().equals(requestHash)) throw new IdempotencyConflictException();
         if (existing.responseCode() == null) throw new IllegalStateException("Idempotency key has no stored response");
         ReservationResponse response = objectMapper.readValue(existing.responseBody(), ReservationResponse.class);
+        replayCounter.increment();
         log.info("reserve outcome=replay user_id={} reservation_id={}", userId, response.reservationId());
         return response;
     }

@@ -1,5 +1,7 @@
 package com.example.seat_reservation.exception;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.CannotAcquireLockException;
@@ -24,6 +26,19 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private final Counter seatTakenCounter;
+    private final Counter perUserLimitCounter;
+    private final Counter idempotentConflictCounter;
+
+    public GlobalExceptionHandler(MeterRegistry registry) {
+        this.seatTakenCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "seat_taken").register(registry);
+        this.perUserLimitCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "per_user_limit").register(registry);
+        this.idempotentConflictCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "idempotent_conflict").register(registry);
+    }
 
     public record ApiError(String error, Object detail) {}
 
@@ -87,16 +102,19 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(SeatUnavailableException.class)
     public ResponseEntity<ApiError> handleSeatUnavailable(SeatUnavailableException ex) {
+        seatTakenCounter.increment();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("seat_taken", ex.getMessage()));
     }
 
     @ExceptionHandler(PerUserLimitExceededException.class)
     public ResponseEntity<ApiError> handlePerUserLimit(PerUserLimitExceededException ex) {
+        perUserLimitCounter.increment();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("per_user_limit", ex.getMessage()));
     }
 
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        idempotentConflictCounter.increment();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError("idempotent_conflict", ex.getMessage()));
     }
 
