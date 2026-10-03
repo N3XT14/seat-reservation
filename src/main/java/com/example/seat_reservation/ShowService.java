@@ -8,9 +8,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class ShowService {
@@ -27,6 +29,8 @@ public class ShowService {
 
     @Transactional
     public CreatedShow create(String name, String venue, long pricePaise, int perUserLimit, List<String> labels) {
+        if (new HashSet<>(labels).size() != labels.size()) throw new DuplicateSeatException();
+
         Long showId = jdbc.queryForObject(
             "INSERT INTO shows (name, venue, total_seats, per_user_limit, price_paise) " +
             "VALUES (?, ?, ?, ?, ?) RETURNING id",
