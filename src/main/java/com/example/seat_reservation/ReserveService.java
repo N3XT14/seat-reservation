@@ -9,12 +9,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
@@ -28,13 +30,16 @@ public class ReserveService {
     private final JdbcTemplate jdbc;
     private final ShowCacheStore cacheStore;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate tx;
     private final Counter confirmedCounter;
     private final Counter replayCounter;
 
-    public ReserveService(JdbcTemplate jdbc, ShowCacheStore cacheStore, ObjectMapper objectMapper, MeterRegistry registry) {
+    public ReserveService(JdbcTemplate jdbc, ShowCacheStore cacheStore, ObjectMapper objectMapper, MeterRegistry registry, PlatformTransactionManager txManager) {
         this.jdbc = jdbc;
         this.cacheStore = cacheStore;
         this.objectMapper = objectMapper;
+        this.tx = new TransactionTemplate(txManager);
+        this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.confirmedCounter = Counter.builder("reservations_confirmed_total").register(registry);
         this.replayCounter = Counter.builder("reservations_declined_total")
             .tag("reason", "idempotent_replay").register(registry);
@@ -42,9 +47,44 @@ public class ReserveService {
 
     private record KeyRow(String hash, Integer responseCode, String responseBody) {}
 
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    
     public ReservationResponse reserve(long showId, String userId, List<String> seatLabels, String idempotencyKey) {
-        
+        List<Long> seatIds = fastPathSeatIds(showId, seatLabels);
+        if (seatIds != null && freshRequestForTakenSeat(userId, idempotencyKey, seatIds)) {
+            throw new SeatUnavailableException();
+        }
+        return tx.execute(status -> reserveLocked(showId, userId, seatLabels, idempotencyKey));
+    }
+    
+    private List<Long> fastPathSeatIds(long showId, List<String> seatLabels) {
+        if (new HashSet<>(seatLabels).size() != seatLabels.size()) return null;
+        ShowCache show = cacheStore.get(showId).orElse(null);
+        if (show == null || seatLabels.size() > show.perUserLimit()) return null;
+        List<Long> ids = new ArrayList<>(seatLabels.size());
+        for (String label : seatLabels) {
+            Long id = show.labelToId().get(label);
+            if (id == null) return null;
+            ids.add(id);
+        }
+        return ids;
+    }
+
+    private boolean freshRequestForTakenSeat(String userId, String idempotencyKey, List<Long> seatIds) {
+        Boolean decline = jdbc.query(con -> {
+            var ps = con.prepareStatement(
+                "SELECT NOT EXISTS (SELECT 1 FROM idempotency_keys WHERE user_id = ? AND idempotency_key = ?) " +
+                "   AND EXISTS (SELECT 1 FROM seats WHERE id = ANY(?) AND status <> 'available')"
+            );
+            ps.setString(1, userId);
+            ps.setString(2, idempotencyKey);
+            ps.setArray(3, con.createArrayOf("bigint", seatIds.toArray(Long[]::new)));
+            return ps;
+        }, rs -> rs.next() && rs.getBoolean(1));
+        return Boolean.TRUE.equals(decline);
+    }
+
+    private ReservationResponse reserveLocked(long showId, String userId, List<String> seatLabels, String idempotencyKey) {
+
         // Early duplicate reject (check later if input should be sanitized)
         if (new HashSet<>(seatLabels).size() != seatLabels.size()) {
             throw new DuplicateSeatException();
@@ -66,7 +106,7 @@ public class ReserveService {
         ShowCache show = cacheStore.get(showId).orElseThrow(() -> new ShowNotFoundException(showId));
 
         int n = seatLabels.size();
-        
+
         if (n > show.perUserLimit()) {
             throw new PerUserLimitExceededException(show.perUserLimit());
         }
