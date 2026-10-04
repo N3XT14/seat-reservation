@@ -30,6 +30,9 @@ public class GlobalExceptionHandler {
     private final Counter seatTakenCounter;
     private final Counter perUserLimitCounter;
     private final Counter idempotentConflictCounter;
+    private final Counter duplicateSeatCounter;
+    private final Counter unknownSeatCounter;
+    private final Counter missingKeyCounter;
 
     public GlobalExceptionHandler(MeterRegistry registry) {
         this.seatTakenCounter = Counter.builder("reservations_declined_total")
@@ -38,6 +41,12 @@ public class GlobalExceptionHandler {
             .tag("reason", "per_user_limit").register(registry);
         this.idempotentConflictCounter = Counter.builder("reservations_declined_total")
             .tag("reason", "idempotent_conflict").register(registry);
+        this.duplicateSeatCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "duplicate_seat").register(registry);
+        this.unknownSeatCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "unknown_seat").register(registry);
+        this.missingKeyCounter = Counter.builder("reservations_declined_total")
+            .tag("reason", "missing_idempotency_key").register(registry);
     }
 
     public record ApiError(String error, Object detail) {}
@@ -77,6 +86,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateSeatException.class)
     public ResponseEntity<ApiError> handleDuplicateSeat(DuplicateSeatException ex) {
+        duplicateSeatCounter.increment();
         return ResponseEntity.badRequest().body(new ApiError("duplicate_seat_labels", ex.getMessage()));
     }
 
@@ -92,11 +102,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UnknownSeatLabelException.class)
     public ResponseEntity<ApiError> handleUnknownSeatLabel(UnknownSeatLabelException ex) {
+        unknownSeatCounter.increment();
         return ResponseEntity.badRequest().body(new ApiError("bad_request", ex.getMessage()));
     }
 
     @ExceptionHandler(MissingIdempotencyKeyException.class)
     public ResponseEntity<ApiError> handleMissingIdempotencyKey(MissingIdempotencyKeyException ex) {
+        missingKeyCounter.increment();
         return ResponseEntity.badRequest().body(new ApiError("missing_idempotency_key", ex.getMessage()));
     }
 
