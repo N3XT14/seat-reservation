@@ -20,8 +20,9 @@ public class HealthController {
         return ResponseEntity.ok("ok");
     }
 
-    // Readiness: can we reach the DB? Returns 503 if not, so the load
-    // balancer stops sending traffic rather than serving errors.
+    // Readiness: can we reach the DB? Returns 503 if not (fails closed).
+    // Not used as the LB health check: on ECS a failing LB check restarts the
+    // task, so a DB outage would cause restart loops. The LB checks /healthz.
     @GetMapping("/readyz")
     public ResponseEntity<String> readiness() {
         try {

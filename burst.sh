@@ -37,11 +37,11 @@ else
 fi
 
 # CloudWatch summary: only for someone with access to the AWS account.
-if [ -x "$DIR/aws-metrics.sh" ] && command -v aws >/dev/null 2>&1 \
+if [ -x "$DIR/scripts/aws-metrics.sh" ] && command -v aws >/dev/null 2>&1 \
    && aws sts get-caller-identity --profile seat-sandbox >/dev/null 2>&1; then
     echo ""
     echo "══════════════ CloudWatch (last 15 min) ══════════════"
-    "$DIR/aws-metrics.sh" 15
+    "$DIR/scripts/aws-metrics.sh" 15
 fi
 
 exit $EXIT_CODE
