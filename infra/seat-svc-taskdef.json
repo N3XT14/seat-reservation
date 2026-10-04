@@ -1,0 +1,60 @@
+{
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "139882278997.dkr.ecr.us-east-2.amazonaws.com/seat-reservation:fastdecline",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "SPRING_DATASOURCE_USERNAME",
+          "value": "seatadmin"
+        },
+        {
+          "name": "SPRING_DATASOURCE_URL",
+          "value": "jdbc:postgresql://seat-db.ctuayioiwx0g.us-east-2.rds.amazonaws.com:5432/seatdb"
+        }
+      ],
+      "secrets": [
+        { "name": "JWT_SECRET",                 "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/jwt-secret" },
+        { "name": "ADMIN_KEY",                  "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/admin-key" },
+        { "name": "SPRING_DATASOURCE_PASSWORD", "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/db-password" }
+      ],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65535,
+          "hardLimit": 65535
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/seat-reservation",
+          "awslogs-region": "us-east-2",
+          "awslogs-stream-prefix": "app"
+        }
+      },
+      "systemControls": []
+    }
+  ],
+  "family": "seat-reservation",
+  "executionRoleArn": "arn:aws:iam::139882278997:role/seatEcsExecRole",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "4096",
+  "memory": "8192"
+}

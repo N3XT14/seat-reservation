@@ -11,7 +11,8 @@ set -euo pipefail
 export AWS_PROFILE="${AWS_PROFILE:-seat-sandbox}"
 export AWS_REGION="${AWS_REGION:-us-east-2}"
 
-URL="${URL:-http://seat-alb-v2-811419728.us-east-2.elb.amazonaws.com}"
+# URL="${URL:-http://seat-alb-v2-811419728.us-east-2.elb.amazonaws.com}"
+URL="${URL:-http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com}"
 REQUESTS="${REQUESTS:-20000}"
 SEATS="${SEATS:-200}"
 HOT="${HOT:-20}"

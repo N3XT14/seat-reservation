@@ -19,6 +19,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/seatdb
       SPRING_DATASOURCE_USERNAME: seat
       SPRING_DATASOURCE_PASSWORD: seat
+      ADMIN_KEY: ${ADMIN_KEY:-local-admin-key}
     ports:
       - "8080:8080"
     depends_on:
