@@ -20,19 +20,17 @@
 //
 // Usage:
 //
-//	burst [BASE_URL] [flags]
+//	ADMIN_KEY=... burst [BASE_URL] [flags]
 //	burst http://host --concurrency 20000 --seats 200 --hot 20 --client-cap 2000
 //
-// Tokens are HS256 JWTs signed with $JWT_SECRET (falls back to the app's default).
+// Tokens come from the service's POST /auth/token; ADMIN_KEY is needed to create shows.
+// All user tokens are minted before the timed burst, so they don't count toward it.
 // No third-party dependencies.
 package main
 
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -47,8 +45,6 @@ import (
 	"sync"
 	"time"
 )
-
-const defaultSecret = "change-me-in-production-this-is-at-least-32-bytes-long!!"
 
 // phase1ConnErrs is surfaced in the summary so connection errors aren't hidden
 // behind a PASS.
@@ -67,33 +63,16 @@ type config struct {
 	phase     int
 	clientCap int
 	timeout   time.Duration
-	secret    string
-}
-
-// ── tokens ──────────────────────────────────────────────────────────────────
-
-func b64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
-
-var jwtHeader = b64([]byte(`{"alg":"HS256","typ":"JWT"}`))
-
-func makeToken(secret, userID, role string) string {
-	payload, _ := json.Marshal(map[string]any{
-		"user_id": userID,
-		"role":    role,
-		"exp":     time.Now().Add(2 * time.Hour).Unix(),
-	})
-	signing := jwtHeader + "." + b64(payload)
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(signing))
-	return signing + "." + b64(mac.Sum(nil))
+	adminKey  string
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────────────
 
 type api struct {
-	base   string
-	client *http.Client
-	secret string
+	base       string
+	client     *http.Client
+	adminKey   string
+	adminToken string
 }
 
 type response struct {
@@ -171,13 +150,69 @@ func short(b []byte) string {
 	return s
 }
 
+// ── tokens
+func (a *api) token(ctx context.Context, userID, role string) (string, error) {
+	headers := map[string]string{}
+	if role == "admin" {
+		headers["X-Admin-Key"] = a.adminKey
+	}
+	var r response
+	for attempt := 0; attempt < 3; attempt++ {
+		r = a.do(ctx, "POST", "/auth/token", map[string]any{"user_id": userID, "role": role}, headers)
+		if r.err == nil {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+	}
+	if r.err != nil {
+		return "", fmt.Errorf("token for %s: %w", userID, r.err)
+	}
+	if r.status != 200 || str(r.body, "token") == "" {
+		return "", fmt.Errorf("token for %s failed %d: %s", userID, r.status, short(r.raw))
+	}
+	return str(r.body, "token"), nil
+}
+
+// tokens mints one user token per user, at most `limit` in flight.
+func (a *api) tokens(ctx context.Context, users []string, limit int) (map[string]string, error) {
+	out := make(map[string]string, len(users))
+	var (
+		mu       sync.Mutex
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	sem := make(chan struct{}, limit)
+	for _, u := range users {
+		wg.Add(1)
+		go func(u string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			t, err := a.token(ctx, u, "user")
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				return
+			}
+			out[u] = t
+		}(u)
+	}
+	wg.Wait()
+	return out, firstErr
+}
+
+// ── shows ───────────────────────────────────────────────────────────────────
+
 func (a *api) createShow(ctx context.Context, seats []string, perUserLimit, price int) (string, error) {
 	r := a.do(ctx, "POST", "/shows", map[string]any{
 		"name":           "Burst Test",
 		"price_paise":    price,
 		"per_user_limit": perUserLimit,
 		"seats":          seats,
-	}, map[string]string{"Authorization": "Bearer " + makeToken(a.secret, "burst-admin", "admin")})
+	}, map[string]string{"Authorization": "Bearer " + a.adminToken})
 	if r.err != nil {
 		return "", fmt.Errorf("create show: %w", r.err)
 	}
@@ -304,19 +339,35 @@ func phase1(ctx context.Context, a *api, cfg config) (bool, error) {
 	}
 	fmt.Printf("Show %s | %d seats (%d hot, %d cold)\n", showID, cfg.seats, len(hot), len(cold))
 
-	// Pre-mint every token before the timed section.
+	// Mint every user token before the timed section (not part of the burst).
 	half := cfg.requests / 2
+	nCold := cfg.requests - half
+	users := make([]string, 0, cfg.requests)
+	for i := 0; i < half; i++ {
+		users = append(users, fmt.Sprintf("hot-u%d", i))
+	}
+	for i := 0; i < nCold; i++ {
+		users = append(users, fmt.Sprintf("cold-u%d", i))
+	}
+	fmt.Printf("Minting %d user tokens via /auth/token …\n", len(users))
+	tMint := time.Now()
+	toks, err := a.tokens(ctx, users, 200)
+	if err != nil {
+		return false, err
+	}
+	fmt.Printf("  minted in %.1fs\n", time.Since(tMint).Seconds())
+
 	jobs := make([]job, 0, cfg.requests+cfg.requests/20+1)
 	for i := 0; i < half; i++ {
 		u := fmt.Sprintf("hot-u%d", i)
 		jobs = append(jobs, job{u, fmt.Sprintf("h%d-%d", i, time.Now().UnixNano()),
-			makeToken(a.secret, u, "user"), []string{hot[rand.Intn(len(hot))]}})
+			toks[u], []string{hot[rand.Intn(len(hot))]}})
 	}
-	coldJobs := make([]job, 0, cfg.requests-half)
-	for i := 0; i < cfg.requests-half; i++ {
+	coldJobs := make([]job, 0, nCold)
+	for i := 0; i < nCold; i++ {
 		u := fmt.Sprintf("cold-u%d", i)
 		coldJobs = append(coldJobs, job{u, fmt.Sprintf("c%d-%d", i, time.Now().UnixNano()),
-			makeToken(a.secret, u, "user"), []string{cold[i%len(cold)]}})
+			toks[u], []string{cold[i%len(cold)]}})
 	}
 	jobs = append(jobs, coldJobs...)
 
@@ -557,7 +608,7 @@ func phase1(ctx context.Context, a *api, cfg config) (bool, error) {
 	}
 
 	// Every reserve must end as a domain outcome (201 or 409). Anything else,
-	// e.g. 401 from a wrong JWT_SECRET, means the burst never tested anything.
+	// e.g. 401 from a bad token, means the burst never tested anything.
 	other := 0
 	for c, n := range statusCounts {
 		if c != 201 && c != 409 && c > 0 && c < 500 {
@@ -565,7 +616,7 @@ func phase1(ctx context.Context, a *api, cfg config) (bool, error) {
 		}
 	}
 	if other > 0 {
-		fmt.Printf("  %s  %d responses were neither 201 nor 409 (401 → check JWT_SECRET)\n", fail, other)
+		fmt.Printf("  %s  %d responses were neither 201 nor 409 (401 → token problem)\n", fail, other)
 		ok = false
 	} else {
 		fmt.Printf("  %s  every response was 201 or 409\n", pass)
@@ -620,7 +671,10 @@ func phase2(ctx context.Context, a *api, _ config) (bool, error) {
 	fmt.Printf("Firing %d parallel single-seat reserves for the same user …\n", nSeats)
 
 	uid := "limit-test-user"
-	tok := makeToken(a.secret, uid, "user")
+	tok, err := a.token(ctx, uid, "user")
+	if err != nil {
+		return false, err
+	}
 	jobs := make([]job, nSeats)
 	for i := range jobs {
 		jobs[i] = job{uid, fmt.Sprintf("lim-%d-%d", i, time.Now().UnixNano()), tok, []string{labels[i]}}
@@ -672,7 +726,10 @@ func phase3(ctx context.Context, a *api, _ config) (bool, error) {
 		return false, err
 	}
 	uid := "idem-user"
-	tok := makeToken(a.secret, uid, "user")
+	tok, err := a.token(ctx, uid, "user")
+	if err != nil {
+		return false, err
+	}
 	ikey := fmt.Sprintf("idem-key-%d", time.Now().UnixNano())
 	ok := true
 
@@ -728,10 +785,19 @@ func phase4(ctx context.Context, a *api, _ config) (bool, error) {
 	ok := true
 
 	realUID := "real-user"
+	realTok, err := a.token(ctx, realUID, "user")
+	if err != nil {
+		return false, err
+	}
+	otherTok, err := a.token(ctx, "other-user", "user")
+	if err != nil {
+		return false, err
+	}
+
 	r := a.do(ctx, "POST", "/shows/"+showID+"/reserve",
 		map[string]any{"seats": []string{"ID001"}, "user_id": "someone-else"},
 		map[string]string{
-			"Authorization":   "Bearer " + makeToken(a.secret, realUID, "user"),
+			"Authorization":   "Bearer " + realTok,
 			"Idempotency-Key": fmt.Sprintf("id-spoof-%d", time.Now().UnixNano()),
 		})
 	if r.err != nil || r.status != 201 {
@@ -753,7 +819,7 @@ func phase4(ctx context.Context, a *api, _ config) (bool, error) {
 		return ok, nil
 	}
 	cr := a.do(ctx, "POST", "/reservations/"+resID+"/cancel", nil,
-		map[string]string{"Authorization": "Bearer " + makeToken(a.secret, "other-user", "user")})
+		map[string]string{"Authorization": "Bearer " + otherTok})
 	if cr.err == nil && cr.status == 404 {
 		fmt.Printf("  %s  cancel by wrong user → 404 (no reservation ID leak)\n", pass)
 	} else {
@@ -775,7 +841,7 @@ func parseArgs(args []string) (config, error) {
 	fs.IntVar(&c.clientCap, "client-cap", 0, "max requests in flight at once (0 = all at once)")
 	fs.DurationVar(&c.timeout, "timeout", 30*time.Second, "per-request timeout")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: burst [BASE_URL] [flags]   (JWT_SECRET env signs tokens)")
+		fmt.Fprintln(fs.Output(), "usage: burst [BASE_URL] [flags]   (ADMIN_KEY env required)")
 		fs.PrintDefaults()
 	}
 
@@ -798,12 +864,11 @@ func parseArgs(args []string) (config, error) {
 	}
 	c.baseURL = strings.TrimRight(base, "/")
 
-	c.secret = os.Getenv("JWT_SECRET")
-	if c.secret == "" {
-		c.secret = defaultSecret
-	}
+	c.adminKey = os.Getenv("ADMIN_KEY")
 
 	switch {
+	case c.adminKey == "":
+		return c, errors.New("ADMIN_KEY is required (local docker-compose: local-admin-key)")
 	case c.phase < 0 || c.phase > 4:
 		return c, errors.New("--phase must be 1-4 (or 0 for all)")
 	case c.hot < 1 || c.hot >= c.seats:
@@ -825,9 +890,6 @@ func main() {
 	}
 	if os.Getenv("NO_COLOR") != "" {
 		pass, fail = "PASS", "FAIL"
-	}
-	if os.Getenv("JWT_SECRET") == "" {
-		fmt.Println("INFO: JWT_SECRET not set — using the app's default secret.")
 	}
 
 	inFlight := cfg.clientCap
@@ -855,11 +917,18 @@ func main() {
 		DisableCompression:  true,
 	}
 	a := &api{
-		base:   cfg.baseURL,
-		client: &http.Client{Transport: transport, Timeout: cfg.timeout},
-		secret: cfg.secret,
+		base:     cfg.baseURL,
+		client:   &http.Client{Transport: transport, Timeout: cfg.timeout},
+		adminKey: cfg.adminKey,
 	}
 	fmt.Printf("Target: %s\n", cfg.baseURL)
+
+	adminTok, err := a.token(context.Background(), "burst-admin", "admin")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: admin token:", err, "(check ADMIN_KEY)")
+		os.Exit(2)
+	}
+	a.adminToken = adminTok
 
 	type phase struct {
 		n     int
