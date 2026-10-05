@@ -35,6 +35,7 @@ public class GlobalExceptionHandler {
     private final Counter duplicateSeatCounter;
     private final Counter unknownSeatCounter;
     private final Counter missingKeyCounter;
+    private final Counter dbBusyCounter;
 
     public GlobalExceptionHandler(MeterRegistry registry) {
         this.seatTakenCounter = Counter.builder("reservations_declined_total")
@@ -49,6 +50,7 @@ public class GlobalExceptionHandler {
             .tag("reason", "unknown_seat").register(registry);
         this.missingKeyCounter = Counter.builder("reservations_declined_total")
             .tag("reason", "missing_idempotency_key").register(registry);
+        this.dbBusyCounter = Counter.builder("db_busy_responses_total").register(registry);
     }
 
     public record ApiError(String error, Object detail) {}
@@ -160,6 +162,7 @@ public class GlobalExceptionHandler {
         CannotAcquireLockException.class
     })
     public ResponseEntity<ApiError> handleDatabaseBusy(Exception ex) {
+        dbBusyCounter.increment();
         log.warn("Database busy: {}", ex.getMessage());
         HttpHeaders headers = new HttpHeaders();
         headers.set("Retry-After", "1");

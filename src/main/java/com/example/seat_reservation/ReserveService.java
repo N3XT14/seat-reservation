@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -195,7 +197,14 @@ public class ReserveService {
         // Store idempotency response so concurrent duplicates can replay it.
         storeIdempotencyResponse(userId, idempotencyKey, 201, response);
 
-        confirmedCounter.increment();
+        TransactionSynchronizationManager.registerSynchronization(
+            new TransactionSynchronization() {
+                @Override
+                public void afterCommit() { 
+                    confirmedCounter.increment();
+                }
+            }
+        );
         log.info("reserve outcome=confirmed user_id={} show_id={} seats={}", userId, showId, n);
         return response;
     }
