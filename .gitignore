@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+prom.log
+# scripts/*
+scripts/whats-running.sh
+scripts/svc-status.sh
+scripts/watch-prom.sh
