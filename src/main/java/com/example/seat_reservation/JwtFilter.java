@@ -72,9 +72,9 @@ public class JwtFilter extends OncePerRequestFilter {
 
             JWTClaimsSet claims = jwt.getJWTClaimsSet();
 
-            // Enforce expiry only if the token carries an exp claim.
+            // Require exp: every legitimate token comes from /auth/token, which always sets it.
             Date exp = claims.getExpirationTime();
-            if (exp != null && exp.before(new Date())) {
+            if (exp == null || exp.before(new Date())) {
                 unauthorized(response);
                 return;
             }
