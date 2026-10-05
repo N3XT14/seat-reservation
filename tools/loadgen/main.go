@@ -18,6 +18,8 @@
 //
 //	user's reservation returns 404.
 //
+// Phase 5 - overlapping multi-seat
+// Phase 6 - cancel vs rebook race
 // Usage:
 //
 //	ADMIN_KEY=... burst [BASE_URL] [flags]
@@ -837,7 +839,7 @@ func parseArgs(args []string) (config, error) {
 	fs.IntVar(&c.requests, "concurrency", 300, "total reserve requests in phase 1")
 	fs.IntVar(&c.seats, "seats", 60, "total seats in the phase-1 show")
 	fs.IntVar(&c.hot, "hot", 5, "number of contested hot seats")
-	fs.IntVar(&c.phase, "phase", 0, "run only this phase (1-4); 0 runs all")
+	fs.IntVar(&c.phase, "phase", 0, "run only this phase (1-6); 0 runs all")
 	fs.IntVar(&c.clientCap, "client-cap", 0, "max requests in flight at once (0 = all at once)")
 	fs.DurationVar(&c.timeout, "timeout", 30*time.Second, "per-request timeout")
 	fs.Usage = func() {
@@ -869,8 +871,8 @@ func parseArgs(args []string) (config, error) {
 	switch {
 	case c.adminKey == "":
 		return c, errors.New("ADMIN_KEY is required (local docker-compose: local-admin-key)")
-	case c.phase < 0 || c.phase > 4:
-		return c, errors.New("--phase must be 1-4 (or 0 for all)")
+	case c.phase < 0 || c.phase > 6:
+		return c, errors.New("--phase must be 1-6 (or 0 for all)")
 	case c.hot < 1 || c.hot >= c.seats:
 		return c, errors.New("--hot must be at least 1 and less than --seats")
 	case c.requests < 2:
@@ -940,6 +942,8 @@ func main() {
 		{2, "Per-user limit", phase2},
 		{3, "Idempotency", phase3},
 		{4, "Identity", phase4},
+		{5, "Multi-seat overlap", phase5},
+		{6, "Cancel vs rebook", phase6},
 	}
 
 	ctx := context.Background()
