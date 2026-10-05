@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the Go loadgen as a Fargate task against the ALB, wait for it to finish, print results.
+# Run the Go loadgen as a Fargate task against the NLB, wait for it to finish, print results.
 #
 # Usage:
 #   ./run-burst.sh                      # uses $URL, 20000 requests, uncapped
@@ -26,9 +26,10 @@ CLUSTER=seat
 TASK_DEF=seat-loadgen
 LOG_GROUP=/ecs/seat-reservation
 NETWORK='awsvpcConfiguration={subnets=[subnet-060e461ede7c6bc58,subnet-0f638bec6a0078f39],securityGroups=[sg-0934cd31e4076ddbf],assignPublicIp=ENABLED}'
-
-OVERRIDES=$(printf '{"cpu":"%s","memory":"%s","containerOverrides":[{"name":"loadgen","environment":[{"name":"SPREAD_IPS","value":"%s"}],"command":["%s","--concurrency","%s","--seats","%s","--hot","%s","--client-cap","%s"]}]}' \
-  "$TASK_CPU" "$TASK_MEM" "$SPREAD_IPS" "$URL" "$REQUESTS" "$SEATS" "$HOT" "$CAP")
+ADMIN_KEY="${ADMIN_KEY:-$(aws ssm get-parameter --name /seat/admin-key --with-decryption \
+  --query Parameter.Value --output text)}"
+OVERRIDES=$(printf '{"cpu":"%s","memory":"%s","containerOverrides":[{"name":"loadgen","environment":[{"name":"SPREAD_IPS","value":"%s"},{"name":"ADMIN_KEY","value":"%s"}],"command":["%s","--concurrency","%s","--seats","%s","--hot","%s","--client-cap","%s"]}]}' \
+  "$TASK_CPU" "$TASK_MEM" "$SPREAD_IPS" "$ADMIN_KEY" "$URL" "$REQUESTS" "$SEATS" "$HOT" "$CAP")
 
 echo "Burst: requests=$REQUESTS seats=$SEATS hot=$HOT cap=$CAP -> $URL"
 
