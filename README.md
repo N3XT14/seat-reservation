@@ -36,31 +36,108 @@ Use the returned `token` as `Authorization: Bearer <token>`. Tokens are HS256 JW
 
 ## API
 
+All requests and responses are JSON. Send `Content-Type: application/json` on every POST. Money is integer paise. `GET /shows/{id}`, health, and metrics need no token; everything else needs `Authorization: Bearer <token>`.
+
 | Method | Path | Who | Purpose |
 |---|---|---|---|
-| POST | `/shows` | admin | Create a show with its seats and price (integer paise) |
-| GET | `/shows/{id}` | any | Per-seat status and counts (available + held + confirmed == total) |
+| POST | `/auth/token` | any / admin | Issue tokens |
+| POST | `/shows` | admin | Create a show with its seats and price |
+| GET | `/shows/{id}` | any | Per-seat status and counts |
 | POST | `/shows/{id}/reserve` | user | Reserve seats with an idempotency key |
 | POST | `/reservations/{id}/cancel` | owner | Release a reservation |
-| POST | `/auth/token` | any / admin | Issue tokens |
 | GET | `/healthz` | any | Liveness |
 | GET | `/readyz` | any | Readiness: checks the DB, returns 503 when unreachable |
 | GET | `/actuator/prometheus` | any | Prometheus metrics |
 
-Example reserve:
+### Walkthrough
+
+Needs `curl` and `jq`.
 
 ```bash
-curl -X POST $BASE/shows/$SHOW/reserve \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: 7f3c...' \
-  -d '{"seats":["A12"]}'
+BASE=http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+J='Content-Type: application/json'
+
+# Tokens
+ADMIN=$(curl -s -X POST $BASE/auth/token -H "$J" -H "X-Admin-Key: $ADMIN_KEY" \
+  -d '{"user_id":"ops","role":"admin"}' | jq -r .token)
+ALICE=$(curl -s -X POST $BASE/auth/token -H "$J" -d '{"user_id":"alice"}' | jq -r .token)
+
+# Create a show (venue and per_user_limit are optional; the limit defaults to 4)
+SHOW=$(curl -s -X POST $BASE/shows -H "Authorization: Bearer $ADMIN" -H "$J" \
+  -d '{"name":"friday-night","seats":["A1","A2","A3"],"price_paise":25000,"per_user_limit":4}' | jq -r .id)
+
+# Reserve (the key can also go in the body as "idempotency_key")
+curl -s -X POST $BASE/shows/$SHOW/reserve -H "Authorization: Bearer $ALICE" -H "$J" \
+  -H 'Idempotency-Key: k1' -d '{"seats":["A1","A2"]}'
+
+# Show state
+curl -s $BASE/shows/$SHOW
+
+# Cancel (owner only; use the reservation_id from the reserve response)
+curl -s -X POST $BASE/reservations/<reservation_id>/cancel -H "Authorization: Bearer $ALICE"
 ```
 
-Outcomes: `201` confirmed; `409` seat taken, per-user limit, or same key with different seats; a retry with the same key and body returns the original reservation.
+### Requests and responses
+
+**`POST /auth/token`**: body `{"user_id":"alice"}`, or `{"user_id":"ops","role":"admin"}` with the `X-Admin-Key` header. `user_id` is 1–64 characters of `A-Z a-z 0-9 _ . : -`. Returns `200`:
+
+```json
+{"token":"eyJ...","user_id":"alice","role":"user","expires_at":1791193564}
+```
+
+`expires_at` is in Unix seconds; tokens last 2 hours.
+
+**`POST /shows`** (admin): returns `201`:
+
+```json
+{"id":"1","name":"friday-night","venue":null,"price_paise":25000,"per_user_limit":4,
+ "total_seats":3,"available":3,"held":0,"confirmed":0,
+ "seats":[{"label":"A1","status":"available"},{"label":"A2","status":"available"},{"label":"A3","status":"available"}]}
+```
+
+**`GET /shows/{id}`**: returns `200` with the same shape and live statuses. `available + held + confirmed == total_seats` always holds. A reserve confirms immediately, so `held` is always 0.
+
+**`POST /shows/{id}/reserve`**: body `{"seats":["A1","A2"]}`, with the key either in the `Idempotency-Key` header or as `"idempotency_key"` in the body (the header wins if both are sent). Returns `201`:
+
+```json
+{"reservation_id":"1","show_id":"1","user_id":"alice","seats":["A1","A2"],"amount_paise":50000,"status":"confirmed"}
+```
+
+Any `user_id` in the body is ignored; identity comes from the token.
+
+Idempotency: keys are scoped per user, so two users can use the same key independently. A retry with the same key and the same seats, in any order, returns `201` with the original response and changes nothing, even if the reservation was cancelled since. The same key with different seats, or on a different show, is `409 idempotent_conflict`.
 
 Multi-seat requests are **all-or-nothing**: if any requested seat is not available, the whole request is declined with `409` and no seat changes state. Seats are locked in ascending id order, so overlapping multi-seat requests cannot deadlock.
 
-A successful reserve confirms the seats immediately; `POST /reservations/{id}/cancel` returns them to available.
+**`POST /reservations/{id}/cancel`** (owner): returns `200`, and the seats return to available:
+
+```json
+{"reservation_id":"1","show_id":"1","user_id":"alice","seats":["A1","A2"],"amount_paise":50000,
+ "status":"cancelled","cancelled_at":"2026-10-05T07:46:05.010988Z"}
+```
+
+### Errors
+
+Every error body has the shape `{"error":"<code>","detail":...}`.
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `validation_failed` | Missing or invalid fields (`detail` lists them) |
+| 400 | `malformed_request` | Body is not valid JSON |
+| 400 | `missing_idempotency_key` | No key in the header or body |
+| 400 | `duplicate_seat_labels` | The same seat is listed twice |
+| 400 | `bad_request` | Unknown seat label, or a non-numeric id in the path |
+| 401 | `unauthorized` | Missing, invalid, or expired token. This is also returned for unknown paths and wrong methods when no token is sent, since authentication runs first |
+| 403 | `forbidden` | Non-admin creating a show, or an admin token requested without a valid key |
+| 404 | `show_not_found` / `reservation_not_found` | Unknown id. Cancelling another user's reservation also returns 404, so ids don't leak |
+| 404 | `not_found` | Unknown path (with a valid token) |
+| 405 | `method_not_allowed` | Wrong method on a known path (with a valid token) |
+| 409 | `seat_taken` | A requested seat is already confirmed |
+| 409 | `per_user_limit` | The reserve would exceed the show's `per_user_limit` |
+| 409 | `idempotent_conflict` | Same key, different seats or show |
+| 409 | `already_cancelled` | The reservation was already cancelled |
+| 415 | `unsupported_media_type` | Missing `Content-Type: application/json` |
+| 429 | `busy` | The DB is saturated; retry after `Retry-After` (1 second) with the same key |
 
 ## Run locally
 
