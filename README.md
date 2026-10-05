@@ -155,7 +155,3 @@ Infrastructure on AWS us-east-2: ECS service `seat-svc` (cluster `seat`), RDS Po
 ./scripts/release-app.sh        # build and push image from the committed source
 ./scripts/deploy-app.sh <rev>   # roll the service to that task definition
 ```
-
-## Troubleshooting
-
-- **`port is already allocated` on 5432:** you have a local Postgres running. Stop it, or remove the `ports` lines from the `db` service in `docker-compose.yml` (the app does not need them).
