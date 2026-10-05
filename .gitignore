@@ -36,3 +36,4 @@ prom.log
 scripts/whats-running.sh
 scripts/svc-status.sh
 scripts/watch-prom.sh
+tools/loadgen/seat-loadgen
