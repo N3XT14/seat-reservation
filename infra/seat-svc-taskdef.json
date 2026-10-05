@@ -2,7 +2,7 @@
   "containerDefinitions": [
     {
       "name": "app",
-      "image": "139882278997.dkr.ecr.us-east-2.amazonaws.com/seat-reservation:fastdecline",
+      "image": "139882278997.dkr.ecr.us-east-2.amazonaws.com/seat-reservation:432e83a",
       "cpu": 0,
       "portMappings": [
         {
@@ -23,9 +23,18 @@
         }
       ],
       "secrets": [
-        { "name": "JWT_SECRET",                 "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/jwt-secret" },
-        { "name": "ADMIN_KEY",                  "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/admin-key" },
-        { "name": "SPRING_DATASOURCE_PASSWORD", "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/db-password" }
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/jwt-secret"
+        },
+        {
+          "name": "ADMIN_KEY",
+          "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/admin-key"
+        },
+        {
+          "name": "SPRING_DATASOURCE_PASSWORD",
+          "valueFrom": "arn:aws:ssm:us-east-2:139882278997:parameter/seat/db-password"
+        }
       ],
       "mountPoints": [],
       "volumesFrom": [],
