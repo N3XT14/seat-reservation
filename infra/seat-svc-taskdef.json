@@ -2,7 +2,7 @@
   "containerDefinitions": [
     {
       "name": "app",
-      "image": "139882278997.dkr.ecr.us-east-2.amazonaws.com/seat-reservation:432e83a",
+      "image": "139882278997.dkr.ecr.us-east-2.amazonaws.com/seat-reservation:9215d9a",
       "cpu": 0,
       "portMappings": [
         {
@@ -20,6 +20,10 @@
         {
           "name": "SPRING_DATASOURCE_URL",
           "value": "jdbc:postgresql://seat-db.ctuayioiwx0g.us-east-2.rds.amazonaws.com:5432/seatdb"
+        },
+        {
+          "name": "METRICS_SEATGAUGE_INTERVALMS",
+          "value": "1000"
         }
       ],
       "secrets": [
