@@ -1,0 +1,16 @@
+Target: http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+
+══════════════ Phase 5: Overlapping multi-seat ══════════════
+Show 195 | 40 seats | 2000 users, each wants an adjacent pair (half listed in reverse order)
+Fired 2000 pair requests in 7.21s
+  201 confirmed : 18
+  409 declined  : 1982
+    ↳ seat_taken: 1982
+  [32mPASS[0m  zero 5xx / 429: every response was 201 or 409 [seat_taken]
+  [32mPASS[0m  no seat appears in two pair reservations
+  [32mPASS[0m  GET confirmed=36 == 2 × 18 pair reservations (all-or-nothing held)
+  invariant: available(4)+held(0)+confirmed(36)=40  total_seats=40  [32mPASS[0m
+  [32mPASS[0m  no invariant violations during polling
+
+══════════════ Summary ══════════════
+  Phase 5  Multi-seat overlap    [32mPASS[0m

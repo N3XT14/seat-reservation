@@ -1,0 +1,82 @@
+Burst: requests=20000 seats=200 hot=20 cap=0 -> http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+task: c43990218cac4e6b8c5d6f1a35611a94  (started 22:23:00)
+RUNNING
+DONE    (finished 22:23:49)
+exit code: 0
+Target: http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+══════════════ Phase 1: Main burst ══════════════
+Show 203 | 200 seats (20 hot, 180 cold)
+Minting 20000 user tokens via /auth/token …
+  minted in 1.1s
+Firing 20500 requests (500 duplicate-key replays mixed in, no cap — all at once) …
+Completed in 3.33s  (6150 req/s)
+  latency       : p50=2159ms  p95=2558ms  p99=2737ms  max=3256ms
+  201 confirmed : 221
+  409 declined  : 20279
+    ↳ seat_taken: 20279
+  accounted     : 20500 of 20500 fired
+  Server-side reconciliation (app counters, before/after burst):
+    fired              : 20500
+    processed by app   : 20500  (confirmed 200, seat_taken 20279, replay 21)
+    received by client : 20500
+    lost after app     : 0  (409s 0, 201s 0)
+    never reached app  : 0
+  [32mPASS[0m  per-seat winner: no seat double-booked  (21 replay 201s from idempotency, correct)
+  [32mPASS[0m  GET confirmed=200 matches unique reservations
+  invariant: available(0)+held(0)+confirmed(200)=200  total_seats=200  [32mPASS[0m
+  [32mPASS[0m  zero 5xx / connection errors
+  [32mPASS[0m  every response was 201 or 409
+  [32mPASS[0m  no invariant violations during burst polling
+  Reconciliation:
+    total_seats : 200
+    confirmed   : 200
+    available   : 0
+    held        : 0
+    sum check   : 0+0+200=200 == 200  [32mPASS[0m
+══════════════ Phase 2: Per-user limit ══════════════
+Show 204 | 10 seats, per_user_limit=4
+Firing 10 parallel single-seat reserves for the same user …
+  201 confirmed           : 4  (expected 4)
+  409 per_user_limit      : 6  (expected 6)
+  [32mPASS[0m  exactly 4 seats confirmed
+  [32mPASS[0m  remaining 6 correctly declined as per_user_limit
+══════════════ Phase 3: Idempotency ══════════════
+  First reserve → 201, reservation_id=9915
+  [32mPASS[0m  replay returns same reservation_id (9915)
+  [32mPASS[0m  confirmed=1 after replay (no duplicate seat claimed)
+  [32mPASS[0m  same key + different seat → 409 idempotent_conflict
+══════════════ Phase 4: Identity ══════════════
+  [32mPASS[0m  spoofed body user_id ignored; response user_id = token's (real-user)
+  [32mPASS[0m  cancel by wrong user → 404 (no reservation ID leak)
+══════════════ Phase 5: Overlapping multi-seat ══════════════
+Show 207 | 40 seats | 2000 users, each wants an adjacent pair (half listed in reverse order)
+Fired 2000 pair requests in 0.37s
+  201 confirmed : 17
+  409 declined  : 1983
+    ↳ seat_taken: 1983
+  [32mPASS[0m  zero 5xx / 429: every response was 201 or 409 [seat_taken]
+  [32mPASS[0m  no seat appears in two pair reservations
+  [32mPASS[0m  GET confirmed=34 == 2 × 17 pair reservations (all-or-nothing held)
+  invariant: available(6)+held(0)+confirmed(34)=40  total_seats=40  [32mPASS[0m
+  [32mPASS[0m  no invariant violations during polling
+══════════════ Phase 6: Cancel vs rebook race ══════════════
+Show 208 | 20 seats, each held by its owner; 20 double-cancels race 1000 rebook attempts …
+Race finished in 0.56s
+  [32mPASS[0m  every double-cancel: exactly one 200, one 409 already_cancelled
+  201 confirmed : 11
+  409 declined  : 989
+    ↳ seat_taken: 989
+  [32mPASS[0m  zero 5xx / 429: every response was 201 or 409 [seat_taken]
+  [32mPASS[0m  each released seat went to at most one racer (11 of 20 re-won during the race)
+  [32mPASS[0m  GET confirmed=11 == racer wins (no cancelled seat stayed with its owner)
+  invariant: available(9)+held(0)+confirmed(11)=20  total_seats=20  [32mPASS[0m
+  [32mPASS[0m  9 leftover released seats rebooked cleanly
+  invariant: available(0)+held(0)+confirmed(20)=20  total_seats=20  [32mPASS[0m
+  [32mPASS[0m  no invariant violations during polling
+══════════════ Summary ══════════════
+  Phase 1  Main burst            [32mPASS[0m
+  Phase 2  Per-user limit        [32mPASS[0m
+  Phase 3  Idempotency           [32mPASS[0m
+  Phase 4  Identity              [32mPASS[0m
+  Phase 5  Multi-seat overlap    [32mPASS[0m
+  Phase 6  Cancel vs rebook      [32mPASS[0m

@@ -1,0 +1,73 @@
+show 190
+     api   avail/held/conf/total = 6 0 0 6
+     gauge avail/held/conf/total = 6.0 0.0 0.0 6.0  seats_available=6.0
+     counters confirmed=0.0 replay=0.0 conflict=0.0 taken=0.0 limit=0.0 cancelled=0.0 busy=0.0
+     ^ immediately after create: gauges should already be 6/0/0/6
+     api   avail/held/conf/total = 6 0 0 6
+     gauge avail/held/conf/total = 6.0 0.0 0.0 6.0  seats_available=6.0
+     counters confirmed=0.0 replay=0.0 conflict=0.0 taken=0.0 limit=0.0 cancelled=0.0 busy=0.0
+
+[OK] U1 reserves A1                                 expected 201 got 201
+     body: {"reservation_id":"9323","show_id":"190","user_id":"u1-1791164654","seats":["A1"],"amount_paise":25000,"status":"confirmed"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=0.0 conflict=0.0 taken=0.0 limit=0.0 cancelled=0.0 busy=0.0
+
+[OK] U1 replays same key                            expected 201 got 201
+     body: {"reservation_id":"9323","show_id":"190","user_id":"u1-1791164654","seats":["A1"],"amount_paise":25000,"status":"confirmed"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=0.0 taken=0.0 limit=0.0 cancelled=0.0 busy=0.0
+
+[OK] U1 same key, different seats                   expected 409 got 409
+     body: {"error":"idempotent_conflict","detail":"Same idempotency key used with different request body"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=0.0 limit=0.0 cancelled=0.0 busy=0.0
+
+[OK] U2 takes taken A1                              expected 409 got 409
+     body: {"error":"seat_taken","detail":"One or more seats are no longer available"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=1.0 limit=0.0 cancelled=0.0 busy=0.0
+
+[OK] U2 asks 5 (limit 4)                            expected 409 got 409
+     body: {"error":"per_user_limit","detail":"Per-user seat limit of 4 would be exceeded"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=1.0 limit=1.0 cancelled=0.0 busy=0.0
+
+[OK] U2 partial A1+A2 (all-or-nothing)              expected 409 got 409
+     body: {"error":"seat_taken","detail":"One or more seats are no longer available"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=2.0 limit=1.0 cancelled=0.0 busy=0.0
+
+[OK] U2 cancels U1's reservation                    expected 404 got 404
+     body: {"error":"reservation_not_found","detail":"Reservation not found"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=2.0 limit=1.0 cancelled=0.0 busy=0.0
+
+[OK] U1 cancels own reservation                     expected 200 got 200
+     body: {"reservation_id":"9323","show_id":"190","user_id":"u1-1791164654","seats":["A1"],"amount_paise":25000,"status":"cancelled","cancelled_at":"2026-10-05T01:44:32.404583Z"}
+     api   avail/held/conf/total = 6 0 0 6
+     gauge avail/held/conf/total = 6.0 0.0 0.0 6.0  seats_available=6.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=2.0 limit=1.0 cancelled=1.0 busy=0.0
+
+[OK] U1 cancels again                               expected 409 got 409
+     body: {"error":"already_cancelled","detail":"Reservation is already cancelled"}
+     api   avail/held/conf/total = 6 0 0 6
+     gauge avail/held/conf/total = 6.0 0.0 0.0 6.0  seats_available=6.0
+     counters confirmed=1.0 replay=1.0 conflict=1.0 taken=2.0 limit=1.0 cancelled=1.0 busy=0.0
+
+[OK] U2 rebooks released A1                         expected 201 got 201
+     body: {"reservation_id":"9324","show_id":"190","user_id":"u2-1791164654","seats":["A1"],"amount_paise":25000,"status":"confirmed"}
+     api   avail/held/conf/total = 5 0 1 6
+     gauge avail/held/conf/total = 5.0 0.0 1.0 6.0  seats_available=5.0
+     counters confirmed=2.0 replay=1.0 conflict=1.0 taken=2.0 limit=1.0 cancelled=1.0 busy=0.0
+
+[OK]   invariant 5 + 0 + 1 == 6
+[OK]   gauge seats_available=5.0 matches API
+
+failures: 0

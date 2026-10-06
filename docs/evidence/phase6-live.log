@@ -1,0 +1,19 @@
+Target: http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+
+══════════════ Phase 6: Cancel vs rebook race ══════════════
+Show 196 | 20 seats, each held by its owner; 20 double-cancels race 1000 rebook attempts …
+Race finished in 0.65s
+  [32mPASS[0m  every double-cancel: exactly one 200, one 409 already_cancelled
+  201 confirmed : 7
+  409 declined  : 993
+    ↳ seat_taken: 993
+  [32mPASS[0m  zero 5xx / 429: every response was 201 or 409 [seat_taken]
+  [32mPASS[0m  each released seat went to at most one racer (7 of 20 re-won during the race)
+  [32mPASS[0m  GET confirmed=7 == racer wins (no cancelled seat stayed with its owner)
+  invariant: available(13)+held(0)+confirmed(7)=20  total_seats=20  [32mPASS[0m
+  [32mPASS[0m  13 leftover released seats rebooked cleanly
+  invariant: available(0)+held(0)+confirmed(20)=20  total_seats=20  [32mPASS[0m
+  [32mPASS[0m  no invariant violations during polling
+
+══════════════ Summary ══════════════
+  Phase 6  Cancel vs rebook      [32mPASS[0m

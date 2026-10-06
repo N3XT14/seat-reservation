@@ -1,0 +1,55 @@
+Burst: requests=20000 seats=200 hot=20 cap=0 -> http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+task: fcfcab438cae4835a8f7811a6e1b1a36  (started 21:45:45)
+RUNNING
+DONE    (finished 21:46:45)
+exit code: 0
+Target: http://seat-nlb-a1a61f5739a9984f.elb.us-east-2.amazonaws.com
+══════════════ Phase 1: Main burst ══════════════
+Show 191 | 200 seats (20 hot, 180 cold)
+Minting 20000 user tokens via /auth/token …
+  minted in 5.2s
+Firing 20500 requests (500 duplicate-key replays mixed in, no cap — all at once) …
+Completed in 8.62s  (2379 req/s)
+  latency       : p50=4569ms  p95=6900ms  p99=7098ms  max=7537ms
+  201 confirmed : 220
+  409 declined  : 20280
+    ↳ seat_taken: 20280
+  accounted     : 20500 of 20500 fired
+  Server-side reconciliation (app counters, before/after burst):
+    fired              : 20500
+    processed by app   : 20500  (confirmed 200, seat_taken 20280, replay 20)
+    received by client : 20500
+    lost after app     : 0  (409s 0, 201s 0)
+    never reached app  : 0
+  [32mPASS[0m  per-seat winner: no seat double-booked  (20 replay 201s from idempotency, correct)
+  [32mPASS[0m  GET confirmed=200 matches unique reservations
+  invariant: available(0)+held(0)+confirmed(200)=200  total_seats=200  [32mPASS[0m
+  [32mPASS[0m  zero 5xx / connection errors
+  [32mPASS[0m  every response was 201 or 409
+  [32mPASS[0m  no invariant violations during burst polling
+  Reconciliation:
+    total_seats : 200
+    confirmed   : 200
+    available   : 0
+    held        : 0
+    sum check   : 0+0+200=200 == 200  [32mPASS[0m
+══════════════ Phase 2: Per-user limit ══════════════
+Show 192 | 10 seats, per_user_limit=4
+Firing 10 parallel single-seat reserves for the same user …
+  201 confirmed           : 4  (expected 4)
+  409 per_user_limit      : 6  (expected 6)
+  [32mPASS[0m  exactly 4 seats confirmed
+  [32mPASS[0m  remaining 6 correctly declined as per_user_limit
+══════════════ Phase 3: Idempotency ══════════════
+  First reserve → 201, reservation_id=9529
+  [32mPASS[0m  replay returns same reservation_id (9529)
+  [32mPASS[0m  confirmed=1 after replay (no duplicate seat claimed)
+  [32mPASS[0m  same key + different seat → 409 idempotent_conflict
+══════════════ Phase 4: Identity ══════════════
+  [32mPASS[0m  spoofed body user_id ignored; response user_id = token's (real-user)
+  [32mPASS[0m  cancel by wrong user → 404 (no reservation ID leak)
+══════════════ Summary ══════════════
+  Phase 1  Main burst            [32mPASS[0m
+  Phase 2  Per-user limit        [32mPASS[0m
+  Phase 3  Idempotency           [32mPASS[0m
+  Phase 4  Identity              [32mPASS[0m
